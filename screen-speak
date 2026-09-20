@@ -107,7 +107,7 @@ omarchy-notification-send -g 󰔊 "Speaking selection…"
   printf '%s\n' "$TEXT" | python3 -m piper \
     -m "$VOICE" \
     --data-dir "$VOICE_DIR" \
-    --length-scale 0.7 \
+    --length-scale 0.75 \
     --noise-scale 0.75 \
     --noise-w-scale 1.0 \
     --sentence-silence 0.25

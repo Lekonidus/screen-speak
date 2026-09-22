@@ -1,5 +1,22 @@
 #!/bin/bash
-# Select a screen region, OCR it, copy to clipboard, and speak with Piper.
+# Select a screen region, OCR it, copy to clipboard, and speak.
+# Usage: screen-speak [piper|kokoro]
+#   piper  (default) — local Piper neural TTS
+#   kokoro           — local Kokoro neural TTS (more natural)
+
+ENGINE="${1:-piper}"
+case "$ENGINE" in
+  piper|kokoro) ;;
+  --check)
+    # preserve old prep self-check: screen-speak --check
+    ENGINE=piper
+    DO_CHECK=1
+    ;;
+  *)
+    echo "Usage: screen-speak [piper|kokoro]" >&2
+    exit 2
+    ;;
+esac
 
 VOICE_DIR="${SCREEN_SPEAK_VOICE_DIR:-$HOME/.local/share/piper}"
 VOICE="${SCREEN_SPEAK_VOICE:-en_GB-northern_english_male-medium}"
@@ -73,7 +90,7 @@ else:
 ' "$@"
 }
 
-if [[ $1 == --check ]]; then
+if [[ ${DO_CHECK:-0} == 1 || $1 == --check ]]; then
   prep --check
   exit $?
 fi
@@ -100,17 +117,25 @@ TEXT=$(printf '%s' "$RAW" | prep)
 
 screen-speak-stop
 
-omarchy-notification-send -g 󰔊 "Speaking selection…"
-
-# One utterance; noise_* add timing/timbre variation so it sounds less flat.
-(
-  printf '%s\n' "$TEXT" | python3 -m piper \
-    -m "$VOICE" \
-    --data-dir "$VOICE_DIR" \
-    --length-scale 0.75 \
-    --noise-scale 0.75 \
-    --noise-w-scale 1.0 \
-    --sentence-silence 0.25
-) &
+case "$ENGINE" in
+  piper)
+    omarchy-notification-send -g 󰔊 "Speaking (Piper)…"
+    (
+      printf '%s\n' "$TEXT" | python3 -m piper \
+        -m "$VOICE" \
+        --data-dir "$VOICE_DIR" \
+        --length-scale 0.75 \
+        --noise-scale 0.75 \
+        --noise-w-scale 1.0 \
+        --sentence-silence 0.25
+    ) &
+    ;;
+  kokoro)
+    omarchy-notification-send -g 󰔊 "Speaking (Kokoro)…"
+    (
+      printf '%s\n' "$TEXT" | screen-speak-kokoro-tts
+    ) &
+    ;;
+esac
 
 exit 0

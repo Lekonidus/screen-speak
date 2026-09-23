@@ -91,14 +91,19 @@ def _restore_abbrevs(s: str) -> str:
 def clean(s: str) -> str:
     s = _protect_abbrevs(s)
 
+    # Leading OCR junk
+    s = re.sub(r"^[\s;:|_-]+", "", s)
+
     # OCR: sentence-initial l or | mistaken for pronoun I (before a word)
     s = re.sub(r"(^|[.!?]\s+)[l|](?=\s+[a-z])", r"\1I", s)
 
     # Ellipsis → sentence break
     s = s.replace("...", ".").replace("…", ".")
 
-    # Quotes → short breath
-    s = re.sub(r'[“”„‟"\']', ", ", s)
+    # Quotes → short breath (not ASCII apostrophe — keep boyar's / don't)
+    s = re.sub(r'[“”„‟"]', ", ", s)
+    # Standalone apostrophe quotes only (not possessives like boy's)
+    s = re.sub(r"(?<!\w)'|'(?!\w)", ", ", s)
 
     # Slash → pause
     s = s.replace("/", ", ")
@@ -118,11 +123,15 @@ def clean(s: str) -> str:
     s = re.sub(rf"(?<=\w)[{deco_class}]+(?=\w)", " ", s)
     s = re.sub(rf"[{deco_class}]+", "", s)
 
-    # Arrows / separators
+    # Arrows / separators (pipes: drop OCR edge junk, pause if mid-text)
     s = re.sub(rf"[{re.escape(ARROW_CHARS)}]", ", ", s)
     s = re.sub(r"(?<!\w)>(?!\w)", ", ", s)
-    s = re.sub(r"\|+", ", ", s)
+    s = re.sub(r"^\|+|\|+$", "", s)
+    s = re.sub(r"\s*\|+\s*", ", ", s)
     s = re.sub(r" {2,}", ", ", s)
+
+    # Stray OCR crumbs: lone digits / single letters between pauses
+    s = re.sub(r"(^|[,.\s])[1l|](?=[,\s.]|$)", r"\1", s)
 
     s = _restore_abbrevs(s)
 
@@ -274,6 +283,13 @@ they might give you nightmares.
 
     prepared = prepare(seven)
     assert "\n" in prepared, prepared
+
+    c = clean("boyar's displeasure")
+    assert "boyar's" in c, c
+    assert "boyar, s" not in c, c
+
+    iam = clean("I am here.")
+    assert "[[ aɪ ]]" in iam, iam
 
     print("ok")
 

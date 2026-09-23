@@ -6,6 +6,7 @@ VOICE="${SCREEN_SPEAK_VOICE:-en_GB-northern_english_male-medium}"
 
 if [[ $1 == --check ]]; then
   screen-speak-prep --check
+  screen-speak-play --check
   exit $?
 fi
 
@@ -33,15 +34,11 @@ screen-speak-stop
 
 omarchy-notification-send -g 󰔊 "Speaking selection…"
 
-# Prep emits newline-separated chunks (≤3 sentences); Piper reads each line.
+# Custom player inserts real silence after commas (Piper CLI does not).
 (
-  printf '%s\n' "$TEXT" | python3 -m piper \
-    -m "$VOICE" \
-    --data-dir "$VOICE_DIR" \
-    --length-scale 0.75 \
-    --noise-scale 0.75 \
-    --noise-w-scale 1.0 \
-    --sentence-silence 0.25
+  export SCREEN_SPEAK_VOICE_DIR="$VOICE_DIR"
+  export SCREEN_SPEAK_VOICE="$VOICE"
+  printf '%s\n' "$TEXT" | screen-speak-play
 ) &
 
 exit 0

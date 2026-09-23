@@ -44,7 +44,7 @@ screen-speak --check
 # or: screen-speak-prep --check
 ```
 
-OCR text is cleaned before speech: dashes/quotes/slashes become pauses, decorative symbols are dropped, abbreviations like `Mr.` stay intact, and long notes are split every few sentences so Piper does not rush.
+OCR text is cleaned before speech: dashes/quotes/slashes become pauses, decorative symbols are dropped, abbreviations like `Mr.` stay intact, and long notes are split every few sentences so Piper does not rush. Playback inserts a short silence after commas (~0.18s) and a longer one after sentence endings — Piper alone would otherwise gloss over commas.
 
 ---
 

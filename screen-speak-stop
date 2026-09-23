@@ -1,6 +1,5 @@
 #!/bin/bash
-# Stop screen-speak playback (Piper and/or Kokoro).
+# Stop screen-speak Piper/ffplay playback.
 pkill -f '[p]ython3 -m piper' 2>/dev/null
-pkill -f '[s]creen-speak-kokoro-tts' 2>/dev/null
 pkill -x ffplay 2>/dev/null
 exit 0

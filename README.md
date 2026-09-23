@@ -28,7 +28,7 @@ mkdir -p ~/.local/share/piper
 python3 -m piper.download_voices en_GB-northern_english_male-medium \
   --data-dir ~/.local/share/piper
 
-install -m 755 screen-speak screen-speak-stop screen-speak-prep ~/.local/bin/
+install -m 755 screen-speak screen-speak-stop screen-speak-prep screen-speak-play ~/.local/bin/
 ```
 
 Add the binds from [`hypr/bindings.snippet.lua`](hypr/bindings.snippet.lua) to `~/.config/hypr/bindings.lua`, then:

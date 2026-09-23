@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Speak prep'd text with Piper.
 
-Commas become in-stream pause phonemes (smooth continuation).
-Sentence endings get a short silence between synthesize calls.
+Commas → short in-stream pause phonemes (smooth).
+Dashes → longer in-stream pause phonemes.
+Paragraph breaks (blank lines) → real silence between sections.
+Sentence endings → shorter silence between synthesize calls.
 """
 
 from __future__ import annotations
@@ -18,9 +20,10 @@ from piper.audio_playback import AudioPlayer
 VOICE_DIR = Path(os.environ.get("SCREEN_SPEAK_VOICE_DIR", Path.home() / ".local/share/piper"))
 VOICE = os.environ.get("SCREEN_SPEAK_VOICE", "en_GB-northern_english_male-medium")
 LENGTH = float(os.environ.get("SCREEN_SPEAK_LENGTH_SCALE", "0.75"))
-# Underscores inside [[ ]] are pause phonemes; 3 ≈ a short breath.
-COMMA_PAUSE = os.environ.get("SCREEN_SPEAK_COMMA_PAUSE", "[[ _ _ _ ]]")
+COMMA_PAUSE = os.environ.get("SCREEN_SPEAK_COMMA_PAUSE", "[[ _ _ ]]")
+DASH_PAUSE = os.environ.get("SCREEN_SPEAK_DASH_PAUSE", "[[ _ _ _ _ _ _ ]]")
 SENTENCE_SILENCE = float(os.environ.get("SCREEN_SPEAK_SENTENCE_SILENCE", "0.22"))
+PARA_SILENCE = float(os.environ.get("SCREEN_SPEAK_PARA_SILENCE", "0.55"))
 
 
 def resolve_model() -> Path:
@@ -57,17 +60,18 @@ def restore_phoneme_blocks(text: str, blocks: list[str]) -> str:
     return re.sub(r"\x01(\d+)\x01", repl, text)
 
 
-def inject_comma_pauses(text: str) -> str:
-    """Turn , / ; into pause phonemes without ending the synthesize call."""
+def inject_clause_pauses(text: str) -> str:
+    """Dashes = longer breath; commas/semicolons = shorter — same synthesize call."""
     text, blocks = protect_phoneme_blocks(text)
+    text = re.sub(r"\s*[—–−‒]+\s*", f" {DASH_PAUSE} ", text)
+    # Spaced ASCII hyphen used as dash (word hyphens already kept by prep)
+    text = re.sub(r"\s+-\s+", f" {DASH_PAUSE} ", text)
     text = re.sub(r"\s*[,;]+\s*", f" {COMMA_PAUSE} ", text)
     text = restore_phoneme_blocks(text, blocks)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def split_sentences(text: str) -> list[str]:
-    """Split on .!? but keep existing [[ phoneme ]] blocks intact."""
     text, blocks = protect_phoneme_blocks(text)
     text = re.sub(r"\s+", " ", text.replace("\n", " ")).strip()
     if not text:
@@ -81,6 +85,18 @@ def split_sentences(text: str) -> list[str]:
     return out
 
 
+def play_paragraph(voice: PiperVoice, cfg: SynthesisConfig, player: AudioPlayer, text: str, sentence_pad: bytes) -> None:
+    sentences = split_sentences(text)
+    for i, sent in enumerate(sentences):
+        spoken = inject_clause_pauses(sent)
+        if not spoken:
+            continue
+        for chunk in voice.synthesize(spoken, cfg):
+            player.play(chunk.audio_int16_bytes)
+        if i < len(sentences) - 1:
+            player.play(sentence_pad)
+
+
 def play_text(text: str) -> None:
     model = resolve_model()
     voice = PiperVoice.load(model)
@@ -91,29 +107,32 @@ def play_text(text: str) -> None:
     )
     rate = voice.config.sample_rate
     sentence_pad = silence_bytes(rate, SENTENCE_SILENCE)
+    para_pad = silence_bytes(rate, PARA_SILENCE)
 
-    sentences = split_sentences(text)
-    if not sentences:
+    # Paragraphs = blank-line separated; single newlines are sentence chunks
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    if not paragraphs:
         return
 
     with AudioPlayer(rate) as player:
-        for i, sent in enumerate(sentences):
-            spoken = inject_comma_pauses(sent)
-            for chunk in voice.synthesize(spoken, cfg):
-                player.play(chunk.audio_int16_bytes)
-            if i < len(sentences) - 1:
-                player.play(sentence_pad)
+        for i, para in enumerate(paragraphs):
+            # Flatten sentence-chunk newlines inside a paragraph
+            para_flat = " ".join(line.strip() for line in para.splitlines() if line.strip())
+            play_paragraph(voice, cfg, player, para_flat, sentence_pad)
+            if i < len(paragraphs) - 1:
+                player.play(para_pad)
 
 
 def main() -> int:
     if "--check" in sys.argv:
-        s = inject_comma_pauses("Soldiers, when draining, stop.")
-        assert COMMA_PAUSE in s or "_ _ _" in s, s
-        assert "," not in s.replace(COMMA_PAUSE, ""), s
+        s = inject_clause_pauses("Soldiers, when draining, stop.")
+        assert "_ _" in s, s
+        assert "," not in re.sub(r"\[\[[^\]]*\]\]", "", s), s
+        d = inject_clause_pauses("awaits — else trouble.")
+        assert d.count("_") >= s.count("_"), (d, s)
         sents = split_sentences("One. Two! Three?")
         assert len(sents) == 3, sents
-        # Pronoun phoneme blocks survive comma injection
-        s2 = inject_comma_pauses("[[ aɪ ]] went, then [[ aɪ ]] left.")
+        s2 = inject_clause_pauses("[[ aɪ ]] went, then [[ aɪ ]] left.")
         assert s2.count("[[ aɪ ]]") == 2, s2
         print("ok")
         return 0
@@ -121,11 +140,7 @@ def main() -> int:
     text = sys.stdin.read().strip()
     if not text:
         return 1
-    # Prep may emit newline chunks; join into one stream (sentence splitter handles pacing).
-    combined = " ".join(c.strip() for c in text.splitlines() if c.strip())
-    if not combined:
-        return 1
-    play_text(combined)
+    play_text(text)
     return 0
 
 

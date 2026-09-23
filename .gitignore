@@ -1,5 +1,4 @@
 *.onnx
 *.onnx.json
-voices-v1.0.bin
 __pycache__/
 *.wav

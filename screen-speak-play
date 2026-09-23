@@ -20,8 +20,8 @@ from piper.audio_playback import AudioPlayer
 VOICE_DIR = Path(os.environ.get("SCREEN_SPEAK_VOICE_DIR", Path.home() / ".local/share/piper"))
 VOICE = os.environ.get("SCREEN_SPEAK_VOICE", "en_GB-northern_english_male-medium")
 LENGTH = float(os.environ.get("SCREEN_SPEAK_LENGTH_SCALE", "0.75"))
-COMMA_PAUSE = os.environ.get("SCREEN_SPEAK_COMMA_PAUSE", "[[ _ _ ]]")
-DASH_PAUSE = os.environ.get("SCREEN_SPEAK_DASH_PAUSE", "[[ _ _ _ _ _ _ ]]")
+COMMA_PAUSE = os.environ.get("SCREEN_SPEAK_COMMA_PAUSE", "[[ _ _ _ _ _ ]]")
+DASH_PAUSE = os.environ.get("SCREEN_SPEAK_DASH_PAUSE", "[[ _ _ _ _ _ _ _ _ ]]")
 SENTENCE_SILENCE = float(os.environ.get("SCREEN_SPEAK_SENTENCE_SILENCE", "0.22"))
 PARA_SILENCE = float(os.environ.get("SCREEN_SPEAK_PARA_SILENCE", "0.55"))
 

@@ -78,6 +78,7 @@ Write-Step "Using Python: $PythonExe"
 Write-Step "Copy scripts"
 Copy-Item -Force (Join-Path $Root "screen_speak.py") (Join-Path $InstallDir "screen_speak.py")
 Copy-Item -Force (Join-Path $Root "screen_speak_stop.py") (Join-Path $InstallDir "screen_speak_stop.py")
+Copy-Item -Force (Join-Path $Root "screen_speak_prep.py") (Join-Path $InstallDir "screen_speak_prep.py")
 Copy-Item -Force (Join-Path $Root "ScreenSpeak.ahk") (Join-Path $InstallDir "ScreenSpeak.ahk")
 Copy-Item -Force (Join-Path $Root "requirements.txt") (Join-Path $InstallDir "requirements.txt")
 

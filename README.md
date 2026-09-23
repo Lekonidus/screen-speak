@@ -28,7 +28,7 @@ mkdir -p ~/.local/share/piper
 python3 -m piper.download_voices en_GB-northern_english_male-medium \
   --data-dir ~/.local/share/piper
 
-install -m 755 screen-speak screen-speak-stop screen-speak-prep screen-speak-play ~/.local/bin/
+install -m 755 screen-speak screen-speak-stop ~/.local/bin/
 ```
 
 Add the binds from [`hypr/bindings.snippet.lua`](hypr/bindings.snippet.lua) to `~/.config/hypr/bindings.lua`, then:
@@ -41,10 +41,7 @@ hyprctl reload
 
 ```bash
 screen-speak --check
-# or: screen-speak-prep --check
 ```
-
-OCR text is cleaned before speech: dashes/quotes/slashes become pauses, decorative symbols are dropped, abbreviations like `Mr.` stay intact, and long notes are split every few sentences so Piper does not rush. Playback inserts a short silence after commas (~0.18s) and a longer one after sentence endings — Piper alone would otherwise gloss over commas.
 
 ---
 

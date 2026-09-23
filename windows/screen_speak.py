@@ -4,15 +4,12 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
-
-# Prep lives beside this file (installer copies screen_speak_prep.py).
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from screen_speak_prep import prepare, self_check  # noqa: E402
 
 
 VOICE = os.environ.get("SCREEN_SPEAK_VOICE", "en_GB-northern_english_male-medium")
@@ -23,6 +20,72 @@ VOICE_DIR = Path(
     )
 )
 OCR_LANGS = os.environ.get("SCREEN_SPEAK_OCR_LANGS", "eng")
+
+
+def heading(line: str) -> bool:
+    letters = [c for c in line if c.isalpha()]
+    return (
+        bool(letters)
+        and len(letters) >= 3
+        and len(line) < 60
+        and sum(c.isupper() for c in letters) / len(letters) > 0.85
+    )
+
+
+def clean(s: str) -> str:
+    s = s.replace("...", ".").replace("…", ".")
+    s = re.sub(r'[“”"]', ", ", s)
+    s = s.replace("/", ", ")
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"\s+([,.;:!?])", r"\1", s)
+    s = re.sub(r",\s*,+", ", ", s)
+    s = re.sub(r"\s+", " ", s).strip(" ,")
+    if s and s[-1] not in ".!?":
+        s += "."
+    return s
+
+
+def flow(text: str) -> str:
+    parts: list[str] = []
+    buf: list[str] = []
+
+    def flush() -> None:
+        if buf:
+            parts.append(clean(" ".join(buf)))
+            buf.clear()
+
+    for raw in text.replace("\r", "").split("\n"):
+        line = re.sub(r"[ \t]+", " ", raw).strip()
+        if not line:
+            flush()
+            continue
+        letters = sum(c.isalpha() for c in line)
+        if letters == 0 or (len(line) > 6 and letters / len(line) < 0.25):
+            continue
+        if heading(line):
+            flush()
+            parts.append(clean(line.title()))
+            continue
+        buf.append(line)
+    flush()
+    return " ".join(parts)
+
+
+def self_check() -> None:
+    sample = """HYGINUS: FABULAE
+Try your hand at these excerpts. The grammar is
+very simple and the stories are interesting... Though
+they might give you nightmares.
+"""
+    out = flow(sample)
+    assert "grammar is very simple" in out, out
+    assert "interesting. Though" in out, out
+    assert "Hyginus: Fabulae." in out, out
+    assert "\n" not in out, out
+    assert flow("Left / right now.") == "Left, right now."
+    assert flow('He said "hello" now.') == "He said, hello, now."
+    assert flow("Wait. Then go.") == "Wait. Then go."
+    print("ok")
 
 
 def select_region_bbox() -> tuple[int, int, int, int] | None:
@@ -204,7 +267,7 @@ def main() -> int:
         return 1
 
     set_clipboard(raw)
-    text = prepare(raw)
+    text = flow(raw)
     if not text:
         notify("No readable text in selection")
         return 1

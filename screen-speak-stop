@@ -1,6 +1,5 @@
 #!/bin/bash
 # Stop screen-speak Piper/ffplay playback.
-pkill -f '[s]creen-speak-play' 2>/dev/null
 pkill -f '[p]ython3 -m piper' 2>/dev/null
 pkill -x ffplay 2>/dev/null
 exit 0

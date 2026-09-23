@@ -4,9 +4,77 @@
 VOICE_DIR="${SCREEN_SPEAK_VOICE_DIR:-$HOME/.local/share/piper}"
 VOICE="${SCREEN_SPEAK_VOICE:-en_GB-northern_english_male-medium}"
 
+# Join wrapped OCR lines into one utterance. Piper speaks each stdin line
+# separately, so a line break kills the sentence. Periods stay sentence breaks
+# (plus --sentence-silence). Commas stay short pauses. "/" and quotes become
+# commas so they pause instead of being read as "slash" / ignored.
+prep() {
+  python3 -c '
+import re, sys
+
+def heading(line):
+    letters = [c for c in line if c.isalpha()]
+    return bool(letters) and len(letters) >= 3 and len(line) < 60 and sum(c.isupper() for c in letters) / len(letters) > 0.85
+
+def clean(s):
+    s = s.replace("...", ".").replace("…", ".")
+    s = re.sub(r"[“”\"]", ", ", s)
+    s = s.replace("/", ", ")
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"\s+([,.;:!?])", r"\1", s)
+    s = re.sub(r",\s*,+", ", ", s)
+    s = re.sub(r"\s+", " ", s).strip(" ,")
+    if s and s[-1] not in ".!?":
+        s += "."
+    return s
+
+def flow(text):
+    parts = []
+    buf = []
+
+    def flush():
+        if buf:
+            parts.append(clean(" ".join(buf)))
+            buf.clear()
+
+    for raw in text.replace("\r", "").split("\n"):
+        line = re.sub(r"[ \t]+", " ", raw).strip()
+        if not line:
+            flush()
+            continue
+        letters = sum(c.isalpha() for c in line)
+        if letters == 0 or (len(line) > 6 and letters / len(line) < 0.25):
+            continue
+        if heading(line):
+            flush()
+            parts.append(clean(line.title()))
+            continue
+        buf.append(line)
+    flush()
+    return " ".join(parts)
+
+if "--check" in sys.argv:
+    sample = """HYGINUS: FABULAE
+Try your hand at these excerpts. The grammar is
+very simple and the stories are interesting... Though
+they might give you nightmares.
+"""
+    out = flow(sample)
+    assert "grammar is very simple" in out, out
+    assert "interesting. Though" in out, out
+    assert "Hyginus: Fabulae." in out, out
+    assert "\n" not in out, out
+    assert flow("Left / right now.") == "Left, right now."
+    assert flow("He said \"hello\" now.") == "He said, hello, now."
+    assert flow("Wait. Then go.") == "Wait. Then go."
+    print("ok")
+else:
+    sys.stdout.write(flow(sys.stdin.read()))
+' "$@"
+}
+
 if [[ $1 == --check ]]; then
-  screen-speak-prep --check
-  screen-speak-play --check
+  prep --check
   exit $?
 fi
 
@@ -27,18 +95,21 @@ RAW=$(grim -g "$SELECTION" - | tesseract stdin stdout --oem 1 --psm 6 -l "${OMAR
 [[ -z $RAW ]] && exit 1
 printf '%s' "$RAW" | wl-copy
 
-TEXT=$(printf '%s' "$RAW" | screen-speak-prep)
+TEXT=$(printf '%s' "$RAW" | prep)
 [[ -z $TEXT ]] && exit 1
 
 screen-speak-stop
 
 omarchy-notification-send -g 󰔊 "Speaking selection…"
 
-# Custom player inserts real silence after commas (Piper CLI does not).
 (
-  export SCREEN_SPEAK_VOICE_DIR="$VOICE_DIR"
-  export SCREEN_SPEAK_VOICE="$VOICE"
-  printf '%s\n' "$TEXT" | screen-speak-play
+  printf '%s\n' "$TEXT" | python3 -m piper \
+    -m "$VOICE" \
+    --data-dir "$VOICE_DIR" \
+    --length-scale 0.75 \
+    --noise-scale 0.75 \
+    --noise-w-scale 1.0 \
+    --sentence-silence 0.25
 ) &
 
 exit 0

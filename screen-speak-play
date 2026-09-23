@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Speak prep'd text with Piper, inserting real silence after commas and sentences.
+"""Speak prep'd text with Piper.
 
-Piper's --sentence-silence only applies between .!? sentences — commas are otherwise
-nearly inaudible at faster length-scales. This player splits on clause punctuation
-and plays short breaths after commas/semicolons.
+Commas become in-stream pause phonemes (smooth continuation).
+Sentence endings get a short silence between synthesize calls.
 """
 
 from __future__ import annotations
@@ -11,7 +10,6 @@ from __future__ import annotations
 import os
 import re
 import sys
-import wave
 from pathlib import Path
 
 from piper import PiperVoice, SynthesisConfig
@@ -20,8 +18,9 @@ from piper.audio_playback import AudioPlayer
 VOICE_DIR = Path(os.environ.get("SCREEN_SPEAK_VOICE_DIR", Path.home() / ".local/share/piper"))
 VOICE = os.environ.get("SCREEN_SPEAK_VOICE", "en_GB-northern_english_male-medium")
 LENGTH = float(os.environ.get("SCREEN_SPEAK_LENGTH_SCALE", "0.75"))
-COMMA_SILENCE = float(os.environ.get("SCREEN_SPEAK_COMMA_SILENCE", "0.18"))
-SENTENCE_SILENCE = float(os.environ.get("SCREEN_SPEAK_SENTENCE_SILENCE", "0.28"))
+# Underscores inside [[ ]] are pause phonemes; 3 ≈ a short breath.
+COMMA_PAUSE = os.environ.get("SCREEN_SPEAK_COMMA_PAUSE", "[[ _ _ _ ]]")
+SENTENCE_SILENCE = float(os.environ.get("SCREEN_SPEAK_SENTENCE_SILENCE", "0.22"))
 
 
 def resolve_model() -> Path:
@@ -34,38 +33,52 @@ def resolve_model() -> Path:
     raise SystemExit(f"Voice not found: {candidate}")
 
 
-def segments(text: str) -> list[tuple[str, str]]:
-    """Split into (spoken_text, pause_kind) where pause_kind is comma|sentence|none."""
-    text = re.sub(r"\s+", " ", text.replace("\n", " ")).strip()
-    if not text:
-        return []
-    out: list[tuple[str, str]] = []
-    # Keep trailing punctuation with each clause
-    parts = re.findall(r"[^.!,?;]+(?:[.!,?;]+)?", text)
-    for part in parts:
-        part = part.strip()
-        if not part:
-            continue
-        if re.search(r"[.!?]+$", part):
-            kind = "sentence"
-        elif re.search(r"[,;]+$", part):
-            kind = "comma"
-        else:
-            kind = "none"
-        # Don't speak bare punctuation
-        spoken = part.strip()
-        if not re.search(r"\w", spoken):
-            continue
-        out.append((spoken, kind))
-    return out
-
-
 def silence_bytes(sample_rate: int, seconds: float) -> bytes:
-    n = int(sample_rate * seconds) * 2  # 16-bit mono
-    # even byte count
+    n = int(sample_rate * seconds) * 2
     if n % 2:
         n += 1
     return bytes(n)
+
+
+def protect_phoneme_blocks(text: str) -> tuple[str, list[str]]:
+    blocks: list[str] = []
+
+    def repl(m: re.Match[str]) -> str:
+        blocks.append(m.group(0))
+        return f"\x01{len(blocks) - 1}\x01"
+
+    return re.sub(r"\[\[[^\]]*\]\]", repl, text), blocks
+
+
+def restore_phoneme_blocks(text: str, blocks: list[str]) -> str:
+    def repl(m: re.Match[str]) -> str:
+        return blocks[int(m.group(1))]
+
+    return re.sub(r"\x01(\d+)\x01", repl, text)
+
+
+def inject_comma_pauses(text: str) -> str:
+    """Turn , / ; into pause phonemes without ending the synthesize call."""
+    text, blocks = protect_phoneme_blocks(text)
+    text = re.sub(r"\s*[,;]+\s*", f" {COMMA_PAUSE} ", text)
+    text = restore_phoneme_blocks(text, blocks)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def split_sentences(text: str) -> list[str]:
+    """Split on .!? but keep existing [[ phoneme ]] blocks intact."""
+    text, blocks = protect_phoneme_blocks(text)
+    text = re.sub(r"\s+", " ", text.replace("\n", " ")).strip()
+    if not text:
+        return []
+    parts = re.split(r"(?<=[.!?])\s+", text)
+    out: list[str] = []
+    for p in parts:
+        p = restore_phoneme_blocks(p.strip(), blocks)
+        if p and re.search(r"\w", p):
+            out.append(p)
+    return out
 
 
 def play_text(text: str) -> None:
@@ -77,40 +90,41 @@ def play_text(text: str) -> None:
         noise_w_scale=1.0,
     )
     rate = voice.config.sample_rate
-    comma_pad = silence_bytes(rate, COMMA_SILENCE)
     sentence_pad = silence_bytes(rate, SENTENCE_SILENCE)
 
-    segs = segments(text)
-    if not segs:
+    sentences = split_sentences(text)
+    if not sentences:
         return
 
     with AudioPlayer(rate) as player:
-        for spoken, kind in segs:
+        for i, sent in enumerate(sentences):
+            spoken = inject_comma_pauses(sent)
             for chunk in voice.synthesize(spoken, cfg):
                 player.play(chunk.audio_int16_bytes)
-            if kind == "comma":
-                player.play(comma_pad)
-            elif kind == "sentence":
+            if i < len(sentences) - 1:
                 player.play(sentence_pad)
 
 
 def main() -> int:
     if "--check" in sys.argv:
-        s = segments("Soldiers, when draining, stop. Go.")
-        assert [t for t, _ in s][0].startswith("Soldiers"), s
-        assert any(k == "comma" for _, k in s), s
-        assert any(k == "sentence" for _, k in s), s
+        s = inject_comma_pauses("Soldiers, when draining, stop.")
+        assert COMMA_PAUSE in s or "_ _ _" in s, s
+        assert "," not in s.replace(COMMA_PAUSE, ""), s
+        sents = split_sentences("One. Two! Three?")
+        assert len(sents) == 3, sents
+        # Pronoun phoneme blocks survive comma injection
+        s2 = inject_comma_pauses("[[ aɪ ]] went, then [[ aɪ ]] left.")
+        assert s2.count("[[ aɪ ]]") == 2, s2
         print("ok")
         return 0
 
     text = sys.stdin.read().strip()
     if not text:
         return 1
-    # Multiple prep chunks (newlines) — speak sequentially with sentence pad between
-    chunks = [c.strip() for c in text.splitlines() if c.strip()]
-    if not chunks:
+    # Prep may emit newline chunks; join into one stream (sentence splitter handles pacing).
+    combined = " ".join(c.strip() for c in text.splitlines() if c.strip())
+    if not combined:
         return 1
-    combined = " ".join(chunks)
     play_text(combined)
     return 0
 

@@ -91,6 +91,9 @@ def _restore_abbrevs(s: str) -> str:
 def clean(s: str) -> str:
     s = _protect_abbrevs(s)
 
+    # OCR: sentence-initial l or | mistaken for pronoun I (before a word)
+    s = re.sub(r"(^|[.!?]\s+)[l|](?=\s+[a-z])", r"\1I", s)
+
     # Ellipsis → sentence break
     s = s.replace("...", ".").replace("…", ".")
 
@@ -131,6 +134,10 @@ def clean(s: str) -> str:
     # Avoid ",." artifacts
     s = re.sub(r",\s*\.", ".", s)
     s = re.sub(r"\.\s*\.", ".", s)
+
+    # Force clear "I" phoneme — Piper/espeak merges "I am" into aɪɐm and
+    # often swallows the pronoun at faster length-scales.
+    s = re.sub(r"\bI\b", "[[ aɪ ]]", s)
 
     if s and s[-1] not in ".!?":
         s += "."

@@ -105,13 +105,14 @@ def clean(s: str) -> str:
     # Standalone apostrophe quotes only (not possessives like boy's)
     s = re.sub(r"(?<!\w)'|'(?!\w)", ", ", s)
 
-    # Slash → short pause (comma-class)
+    # Slash → pause
     s = s.replace("/", ", ")
 
-    # Dashes → same as commas (player uses one breath class)
-    s = re.sub(r"\s*[—–−‒]\s*", ", ", s)
-    s = re.sub(r"\s+-\s+", ", ", s)
+    # Unicode dashes always → pause
+    s = re.sub(r"[—–−‒]", ", ", s)
+    # ASCII hyphen not between word chars (keep well-known)
     s = re.sub(r"(?<!\w)-(?!\w)", ", ", s)
+    s = re.sub(r"\s+-\s+", ", ", s)
 
     # Brackets / asides → , content,
     s = re.sub(r"\(([^)]+)\)", r", \1,", s)
@@ -129,10 +130,8 @@ def clean(s: str) -> str:
     s = re.sub(r"\s*\|+\s*", ", ", s)
     s = re.sub(r" {2,}", ", ", s)
 
-    # Stray OCR crumbs: lone digits / lowercase i,l between boundaries
-    # (before pronoun-I phoneme injection; keeps capital I)
+    # Stray OCR crumbs: lone digits / single letters between pauses
     s = re.sub(r"(^|[,.\s])[1l|](?=[,\s.]|$)", r"\1", s)
-    s = re.sub(r"\b[il]\b", " ", s)
 
     s = _restore_abbrevs(s)
 
@@ -157,28 +156,21 @@ def clean(s: str) -> str:
 def flow(text: str, *, chunk_sentences: int | None = None) -> str:
     """Join OCR lines, clean, optionally chunk.
 
-    Blank lines become paragraph breaks (\\n\\n). Within a paragraph, wrapped
-    lines are joined with spaces. If chunk_sentences is set, each paragraph is
-    chunked; paragraphs stay separated by blank lines for a longer play pause.
+    If chunk_sentences is None, returns a single cleaned string (no newlines).
+    If set (e.g. 3), returns newline-separated chunks of that many sentences.
     """
-    paragraphs: list[list[str]] = [[]]
+    parts: list[str] = []
     buf: list[str] = []
 
-    def flush_buf() -> None:
+    def flush() -> None:
         if buf:
-            paragraphs[-1].append(clean(" ".join(buf)))
+            parts.append(clean(" ".join(buf)))
             buf.clear()
-
-    def new_paragraph() -> None:
-        flush_buf()
-        if paragraphs[-1]:
-            paragraphs.append([])
 
     for raw in text.replace("\r", "").split("\n"):
         line = re.sub(r"[ \t]+", " ", raw).strip()
-        line = line.strip("|").strip()
         if not line:
-            new_paragraph()
+            flush()
             continue
         if garbage_line(line):
             continue
@@ -186,34 +178,25 @@ def flow(text: str, *, chunk_sentences: int | None = None) -> str:
         if letters == 0 or (len(line) > 6 and letters / len(line) < 0.25):
             continue
         if bracket_heading(line):
-            flush_buf()
+            flush()
             inner = re.fullmatch(r"[\[(]\s*([^\]\)]+?)\s*[\])]", line).group(1)  # type: ignore[union-attr]
-            paragraphs[-1].append(clean(inner.title()))
+            parts.append(clean(inner.title()))
             continue
         if heading(line):
-            # Title gets its own short paragraph so it pauses before the body
-            new_paragraph()
-            paragraphs[-1].append(clean(line.title()))
-            new_paragraph()
+            flush()
+            parts.append(clean(line.title()))
             continue
         buf.append(line)
-    flush_buf()
+    flush()
 
-    para_texts: list[str] = []
-    for para_parts in paragraphs:
-        joined = " ".join(p for p in para_parts if p)
-        joined = re.sub(r"\s+", " ", joined).strip()
-        if not joined:
-            continue
-        if chunk_sentences is None:
-            para_texts.append(joined)
-        else:
-            para_texts.append(chunk(joined, chunk_sentences))
+    joined = " ".join(p for p in parts if p)
+    joined = re.sub(r"\s+", " ", joined).strip()
+    if not joined:
+        return ""
 
     if chunk_sentences is None:
-        return "\n\n".join(para_texts)
-    # chunk() already uses \n within a paragraph; keep \n\n between paragraphs
-    return "\n\n".join(para_texts)
+        return joined
+    return chunk(joined, chunk_sentences)
 
 
 def split_sentences(text: str) -> list[str]:
@@ -254,13 +237,13 @@ they might give you nightmares.
     assert "grammar is very simple" in out, out
     assert "interesting. Though" in out, out
     assert "Hyginus: Fabulae." in out, out
-    # Title is its own paragraph → blank line before body
-    assert "\n\n" in out, out
+    assert "\n" not in out, out
 
     assert "well-known" in clean("A well-known hero."), clean("A well-known hero.")
-    dashed = clean("wait — then go")
-    assert "—" not in dashed, dashed
-    assert "," in dashed and "wait" in dashed and "then" in dashed, dashed
+    assert ", " in clean("wait — then go") or "," in clean("wait — then go"), clean(
+        "wait — then go"
+    )
+    assert "—" not in clean("wait — then go"), clean("wait — then go")
 
     c = clean("She spoke (quietly) now.")
     assert "quietly" in c and "(" not in c and ")" not in c, c
@@ -307,11 +290,6 @@ they might give you nightmares.
 
     iam = clean("I am here.")
     assert "[[ aɪ ]]" in iam, iam
-
-    # Paragraph blank line → preserved as \n\n
-    para = flow("First paragraph here.\n\nSecond paragraph there.")
-    assert "\n\n" in para, para
-    assert "First paragraph" in para and "Second paragraph" in para, para
 
     print("ok")
 

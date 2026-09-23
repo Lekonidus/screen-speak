@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Speak prep'd text with Piper.
 
-Commas → short in-stream pause phonemes (smooth).
-Dashes → longer in-stream pause phonemes.
-Paragraph breaks (blank lines) → real silence between sections.
-Sentence endings → shorter silence between synthesize calls.
+Commas (and dashes, which prep maps to commas) → in-stream pause phonemes.
+Paragraph breaks → real silence. Sentence endings → shorter silence.
 """
 
 from __future__ import annotations
@@ -21,7 +19,6 @@ VOICE_DIR = Path(os.environ.get("SCREEN_SPEAK_VOICE_DIR", Path.home() / ".local/
 VOICE = os.environ.get("SCREEN_SPEAK_VOICE", "en_GB-northern_english_male-medium")
 LENGTH = float(os.environ.get("SCREEN_SPEAK_LENGTH_SCALE", "0.75"))
 COMMA_PAUSE = os.environ.get("SCREEN_SPEAK_COMMA_PAUSE", "[[ _ _ _ _ _ ]]")
-DASH_PAUSE = os.environ.get("SCREEN_SPEAK_DASH_PAUSE", "[[ _ _ _ _ _ _ _ _ ]]")
 SENTENCE_SILENCE = float(os.environ.get("SCREEN_SPEAK_SENTENCE_SILENCE", "0.22"))
 PARA_SILENCE = float(os.environ.get("SCREEN_SPEAK_PARA_SILENCE", "0.55"))
 
@@ -61,11 +58,10 @@ def restore_phoneme_blocks(text: str, blocks: list[str]) -> str:
 
 
 def inject_clause_pauses(text: str) -> str:
-    """Dashes = longer breath; commas/semicolons = shorter — same synthesize call."""
+    """Commas/semicolons/dashes → same breath; keep one synthesize call."""
     text, blocks = protect_phoneme_blocks(text)
-    text = re.sub(r"\s*[—–−‒]+\s*", f" {DASH_PAUSE} ", text)
-    # Spaced ASCII hyphen used as dash (word hyphens already kept by prep)
-    text = re.sub(r"\s+-\s+", f" {DASH_PAUSE} ", text)
+    text = re.sub(r"\s*[—–−‒]+\s*", ", ", text)
+    text = re.sub(r"\s+-\s+", ", ", text)
     text = re.sub(r"\s*[,;]+\s*", f" {COMMA_PAUSE} ", text)
     text = restore_phoneme_blocks(text, blocks)
     return re.sub(r"\s+", " ", text).strip()
@@ -85,7 +81,13 @@ def split_sentences(text: str) -> list[str]:
     return out
 
 
-def play_paragraph(voice: PiperVoice, cfg: SynthesisConfig, player: AudioPlayer, text: str, sentence_pad: bytes) -> None:
+def play_paragraph(
+    voice: PiperVoice,
+    cfg: SynthesisConfig,
+    player: AudioPlayer,
+    text: str,
+    sentence_pad: bytes,
+) -> None:
     sentences = split_sentences(text)
     for i, sent in enumerate(sentences):
         spoken = inject_clause_pauses(sent)
@@ -109,14 +111,12 @@ def play_text(text: str) -> None:
     sentence_pad = silence_bytes(rate, SENTENCE_SILENCE)
     para_pad = silence_bytes(rate, PARA_SILENCE)
 
-    # Paragraphs = blank-line separated; single newlines are sentence chunks
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
     if not paragraphs:
         return
 
     with AudioPlayer(rate) as player:
         for i, para in enumerate(paragraphs):
-            # Flatten sentence-chunk newlines inside a paragraph
             para_flat = " ".join(line.strip() for line in para.splitlines() if line.strip())
             play_paragraph(voice, cfg, player, para_flat, sentence_pad)
             if i < len(paragraphs) - 1:
@@ -129,7 +129,9 @@ def main() -> int:
         assert "_ _" in s, s
         assert "," not in re.sub(r"\[\[[^\]]*\]\]", "", s), s
         d = inject_clause_pauses("awaits — else trouble.")
-        assert d.count("_") >= s.count("_"), (d, s)
+        # Dash uses the same pause marker as commas
+        assert COMMA_PAUSE in d or "_ _" in d, d
+        assert "—" not in d, d
         sents = split_sentences("One. Two! Three?")
         assert len(sents) == 3, sents
         s2 = inject_clause_pauses("[[ aɪ ]] went, then [[ aɪ ]] left.")

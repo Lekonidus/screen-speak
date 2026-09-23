@@ -108,11 +108,10 @@ def clean(s: str) -> str:
     # Slash → short pause (comma-class)
     s = s.replace("/", ", ")
 
-    # Dashes → single spaced em dash (longer pause in player); keep word hyphens.
-    # Must not create double spaces (those become commas below).
-    s = re.sub(r"\s*[—–−‒]\s*", " — ", s)
-    s = re.sub(r"\s+-\s+", " — ", s)
-    s = re.sub(r"(?<!\w)-(?!\w)", " — ", s)
+    # Dashes → same as commas (player uses one breath class)
+    s = re.sub(r"\s*[—–−‒]\s*", ", ", s)
+    s = re.sub(r"\s+-\s+", ", ", s)
+    s = re.sub(r"(?<!\w)-(?!\w)", ", ", s)
 
     # Brackets / asides → , content,
     s = re.sub(r"\(([^)]+)\)", r", \1,", s)
@@ -260,8 +259,8 @@ they might give you nightmares.
 
     assert "well-known" in clean("A well-known hero."), clean("A well-known hero.")
     dashed = clean("wait — then go")
-    assert "—" in dashed, dashed
-    assert "wait" in dashed and "then" in dashed, dashed
+    assert "—" not in dashed, dashed
+    assert "," in dashed and "wait" in dashed and "then" in dashed, dashed
 
     c = clean("She spoke (quietly) now.")
     assert "quietly" in c and "(" not in c and ")" not in c, c

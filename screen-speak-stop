@@ -1,7 +1,7 @@
 #!/bin/bash
 # Stop screen-speak Piper/ffplay playback.
 # Only the ffplay Piper spawned, not every ffplay on the machine.
-p=$(pgrep -d, -f '[p]ython3 -m piper')
+p=$(pgrep -d, -f '[p]ython3 (-P )?-m piper')
 [[ -n $p ]] && pkill -x ffplay -P "$p"
-pkill -f '[p]ython3 -m piper' 2>/dev/null
+pkill -f '[p]ython3 (-P )?-m piper' 2>/dev/null
 exit 0

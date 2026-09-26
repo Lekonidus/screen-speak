@@ -87,18 +87,18 @@ Write-Step "Python packages (piper-tts, pillow, pytesseract)"
 
 $VoiceDir = Join-Path $InstallDir "voices"
 Write-Step "Download Piper voice en_GB-northern_english_male-medium"
-& $PythonExe -m piper.download_voices en_GB-northern_english_male-medium --data-dir $VoiceDir
+& $PythonExe -P -m piper.download_voices en_GB-northern_english_male-medium --data-dir $VoiceDir
 
 Write-Step "Write launchers"
 $SpeakBat = @"
 @echo off
 set SCREEN_SPEAK_VOICE_DIR=$VoiceDir
 set SCREEN_SPEAK_VOICE=en_GB-northern_english_male-medium
-"$PythonExe" "%~dp0screen_speak.py" %*
+"$PythonExe" -P "%~dp0screen_speak.py" %*
 "@
 $StopBat = @"
 @echo off
-"$PythonExe" "%~dp0screen_speak_stop.py" %*
+"$PythonExe" -P "%~dp0screen_speak_stop.py" %*
 "@
 Set-Content -Path (Join-Path $InstallDir "screen-speak.bat") -Value $SpeakBat -Encoding ASCII
 Set-Content -Path (Join-Path $InstallDir "screen-speak-stop.bat") -Value $StopBat -Encoding ASCII

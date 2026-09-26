@@ -271,13 +271,14 @@ def notify(msg: str) -> None:
 
 def stop_speak() -> None:
     stop = Path(__file__).with_name("screen_speak_stop.py")
-    subprocess.run([sys.executable, str(stop)], check=False)
+    subprocess.run([sys.executable, "-P", str(stop)], check=False)
 
 
 def speak(text: str) -> None:
     stop_speak()
     cmd = [
         sys.executable,
+        "-P",  # never import modules from the cwd
         "-m",
         "piper",
         "-m",

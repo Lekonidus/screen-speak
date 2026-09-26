@@ -9,7 +9,8 @@ VOICE="${SCREEN_SPEAK_VOICE:-en_GB-northern_english_male-medium}"
 # (plus --sentence-silence). Commas stay short pauses. "/" and quotes become
 # commas so they pause instead of being read as "slash" / ignored.
 prep() {
-  python3 -c '
+  # -P: never import modules from the cwd ($HOME when run from the hotkey).
+  python3 -P -c '
 import re, sys
 
 def heading(line):
@@ -155,7 +156,7 @@ screen-speak-stop
 omarchy-notification-send -g 󰔊 "Speaking selection…"
 
 (
-  printf '%s\n' "$TEXT" | python3 -m piper \
+  printf '%s\n' "$TEXT" | python3 -P -m piper \
     -m "$VOICE" \
     --data-dir "$VOICE_DIR" \
     --length-scale 0.75 \

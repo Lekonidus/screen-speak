@@ -32,11 +32,12 @@ def heading(line: str) -> bool:
     )
 
 
-# Piper raw phonemes ([[ ]]): repeated "," is a longer in-stream pause (no
+# Piper raw phonemes ([[ ]]): pause symbols give in-stream pauses (no
 # clause splitting, which clipped words). Stressed I stops espeak gluing the
-# pronoun onto the next word ("I am" -> aɪɐm). Tune pause lengths here.
-COMMA_PAUSE = " [[ ,, ]] "
-DASH_PAUSE = " [[ ,,, ]] "
+# pronoun onto the next word ("I am" -> aɪɐm). Tune pause lengths here:
+# measured silence at length 0.75: ,, ~90ms  :: ~180ms  ::: ~275ms  ... ~330ms  ..... ~510ms
+COMMA_PAUSE = " [[ ::: ]] "
+DASH_PAUSE = " [[ ..... ]] "
 STRESSED_I = "[[ ˈaɪ ]]"
 # Titles lose their period (Piper ends the sentence on it; espeak still says
 # "mister"). Game shorthand espeak would spell out gets the full word.
@@ -113,15 +114,15 @@ they might give you nightmares.
     out = flow(sample)
     assert "grammar is very simple" in out, out
     assert "interesting. Though" in out, out
-    assert "Hyginus [[ ,, ]] Fabulae." in out, out
+    assert "Hyginus [[ ::: ]] Fabulae." in out, out
     assert "\n" not in out, out
     assert flow("Left / right now.") == "Left, right now."
     assert flow('He said "hello" now.') == "He said, hello, now."
     assert flow("Wait. Then go.") == "Wait. Then go."
-    assert flow("Home, then bed; done.") == "Home [[ ,, ]] then bed [[ ,, ]] done."
-    assert flow('She said "go," so we left.') == "She said, go [[ ,, ]] so we left."
-    assert flow("Home - then bed—done.") == "Home [[ ,,, ]] then bed [[ ,,, ]] done."
-    assert flow("A well-known man, 1,000 at 10:30.") == "A well-known man [[ ,, ]] 1,000 at 10:30."
+    assert flow("Home, then bed; done.") == "Home [[ ::: ]] then bed [[ ::: ]] done."
+    assert flow('She said "go," so we left.') == "She said, go [[ ::: ]] so we left."
+    assert flow("Home - then bed—done.") == "Home [[ ..... ]] then bed [[ ..... ]] done."
+    assert flow("A well-known man, 1,000 at 10:30.") == "A well-known man [[ ::: ]] 1,000 at 10:30."
     assert flow("I am here. I'm fine.") == "[[ ˈaɪ ]] am here. I'm fine."
     assert flow("Then | think l agree.") == "Then [[ ˈaɪ ]] think [[ ˈaɪ ]] agree."
     assert flow("so inter-\nesting") == "so interesting."

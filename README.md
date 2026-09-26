@@ -98,4 +98,4 @@ You can also use **Start Menu → screen-speak**.
 | `OMARCHY_OCR_LANGS` / `SCREEN_SPEAK_OCR_LANGS` | `eng` | Tesseract languages |
 
 Speech speed / naturalness live in the speak scripts (`--length-scale`, `--noise-scale`, `--noise-w-scale`).
-Pause lengths for commas / dashes are `COMMA_PAUSE` / `DASH_PAUSE` in the prep code (more `,` inside `[[ ]]` = longer pause).
+Pause lengths for commas / dashes are `COMMA_PAUSE` / `DASH_PAUSE` in the prep code (measured options are listed in a comment there).

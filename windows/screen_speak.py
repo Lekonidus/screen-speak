@@ -38,14 +38,28 @@ def heading(line: str) -> bool:
 COMMA_PAUSE = " [[ ,, ]] "
 DASH_PAUSE = " [[ ,,, ]] "
 STRESSED_I = "[[ ˈaɪ ]]"
+# Titles lose their period (Piper ends the sentence on it; espeak still says
+# "mister"). Game shorthand espeak would spell out gets the full word.
+ABBREVS = {"Mr": "Mr", "Mrs": "Mrs", "Ms": "Ms", "Dr": "Dr", "St": "St", "Jr": "Jr",
+           "Sr": "Sr", "Lv": "level", "Mt": "mount", "vs": "versus"}
+ROMAN = re.compile(r"\b(?=[IVX]{2,}\b)X{0,3}(?:IX|IV|V?I{0,3})\b")
+
+
+def roman(m: re.Match) -> str:
+    """II -> 2 so espeak doesn't say "roman two". Bare I never matches."""
+    v = {"I": 1, "V": 5, "X": 10}
+    r = m[0]
+    return str(sum(-v[a] if v[a] < v[b] else v[a] for a, b in zip(r, r[1:] + "I")))
 
 
 def clean(s: str) -> str:
+    s = re.sub(r"\b(" + "|".join(ABBREVS) + r")\b\.?", lambda m: ABBREVS[m[1]], s)
     s = s.replace("...", ".").replace("…", ".")
     # Real pauses -> placeholders, so quote/slash commas below stay short.
     s = re.sub(r"\s+(?:--?|–|—)\s+|--|—", "\x02", s)
     s = re.sub(r'\s*[,;:](?=[\s"”]|$)', "\x01", s)
     s = re.sub(r'[“”"]', ", ", s)
+    s = re.sub(r"(\d)\s*/\s*(\d)", r"\1 of \2", s)  # HP 50/100
     s = s.replace("/", ", ")
     s = re.sub(r"(?<!\S)[|l](?!\S)", "I", s)  # OCR misreads of pronoun I
     s = re.sub(r"\s+", " ", s)
@@ -74,6 +88,7 @@ def flow(text: str) -> str:
         if not line:
             flush()
             continue
+        line = ROMAN.sub(roman, line)
         letters = sum(c.isalpha() for c in line)
         if letters == 0 or (len(line) > 6 and letters / len(line) < 0.25):
             continue
@@ -111,6 +126,10 @@ they might give you nightmares.
     assert flow("Then | think l agree.") == "Then [[ ˈaɪ ]] think [[ ˈaɪ ]] agree."
     assert flow("so inter-\nesting") == "so interesting."
     assert flow("Wait,") == "Wait."
+    assert flow("Mr. Smith met Dr. Brown.") == "Mr Smith met Dr Brown."
+    assert flow("Lv. 12 vs Mt. Doom") == "level 12 versus mount Doom."
+    assert flow("CHAPTER XIV\nChapter II and I went") == "Chapter 14. Chapter 2 and [[ ˈaɪ ]] went."
+    assert flow("Your HP is 50/100 now.") == "Your HP is 50 of 100 now."
     print("ok")
 
 

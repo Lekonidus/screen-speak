@@ -32,17 +32,32 @@ def heading(line: str) -> bool:
     )
 
 
+# Piper raw phonemes ([[ ]]): repeated "," is a longer in-stream pause (no
+# clause splitting, which clipped words). Stressed I stops espeak gluing the
+# pronoun onto the next word ("I am" -> aɪɐm). Tune pause lengths here.
+COMMA_PAUSE = " [[ ,, ]] "
+DASH_PAUSE = " [[ ,,, ]] "
+STRESSED_I = "[[ ˈaɪ ]]"
+
+
 def clean(s: str) -> str:
     s = s.replace("...", ".").replace("…", ".")
+    # Real pauses -> placeholders, so quote/slash commas below stay short.
+    s = re.sub(r"\s+(?:--?|–|—)\s+|--|—", "\x02", s)
+    s = re.sub(r'\s*[,;:](?=[\s"”]|$)', "\x01", s)
     s = re.sub(r'[“”"]', ", ", s)
     s = s.replace("/", ", ")
+    s = re.sub(r"(?<!\S)[|l](?!\S)", "I", s)  # OCR misreads of pronoun I
     s = re.sub(r"\s+", " ", s)
-    s = re.sub(r"\s+([,.;:!?])", r"\1", s)
+    s = re.sub(r"\s+([,.;:!?\x01\x02])", r"\1", s)
     s = re.sub(r",\s*,+", ", ", s)
-    s = re.sub(r"\s+", " ", s).strip(" ,")
+    s = re.sub(r",?\s*([\x01\x02])[\s,]*", r"\1", s)
+    s = re.sub(r"\s+", " ", s).strip(" ,\x01\x02")
     if s and s[-1] not in ".!?":
         s += "."
-    return s
+    s = re.sub(r"\bI\b(?!['’])", STRESSED_I, s)
+    s = s.replace("\x01", COMMA_PAUSE).replace("\x02", DASH_PAUSE)
+    return re.sub(r" +", " ", s)
 
 
 def flow(text: str) -> str:
@@ -66,7 +81,10 @@ def flow(text: str) -> str:
             flush()
             parts.append(clean(line.title()))
             continue
-        buf.append(line)
+        if buf and re.search(r"[a-z]-$", buf[-1]):
+            buf[-1] = buf[-1][:-1] + line  # word hyphenated across lines
+        else:
+            buf.append(line)
     flush()
     return " ".join(parts)
 
@@ -80,11 +98,19 @@ they might give you nightmares.
     out = flow(sample)
     assert "grammar is very simple" in out, out
     assert "interesting. Though" in out, out
-    assert "Hyginus: Fabulae." in out, out
+    assert "Hyginus [[ ,, ]] Fabulae." in out, out
     assert "\n" not in out, out
     assert flow("Left / right now.") == "Left, right now."
     assert flow('He said "hello" now.') == "He said, hello, now."
     assert flow("Wait. Then go.") == "Wait. Then go."
+    assert flow("Home, then bed; done.") == "Home [[ ,, ]] then bed [[ ,, ]] done."
+    assert flow('She said "go," so we left.') == "She said, go [[ ,, ]] so we left."
+    assert flow("Home - then bed—done.") == "Home [[ ,,, ]] then bed [[ ,,, ]] done."
+    assert flow("A well-known man, 1,000 at 10:30.") == "A well-known man [[ ,, ]] 1,000 at 10:30."
+    assert flow("I am here. I'm fine.") == "[[ ˈaɪ ]] am here. I'm fine."
+    assert flow("Then | think l agree.") == "Then [[ ˈaɪ ]] think [[ ˈaɪ ]] agree."
+    assert flow("so inter-\nesting") == "so interesting."
+    assert flow("Wait,") == "Wait."
     print("ok")
 
 

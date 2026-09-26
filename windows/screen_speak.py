@@ -54,7 +54,9 @@ def roman(m: re.Match) -> str:
 
 
 def clean(s: str) -> str:
+    s = re.sub(r"[\[\]]", "", s)  # "[[" would reach Piper as raw phonemes
     s = re.sub(r"\b(" + "|".join(ABBREVS) + r")\b\.?", lambda m: ABBREVS[m[1]], s)
+    s = re.sub(r"(?:\.\.\.|…)\s*(?=[a-z])", "\x02", s)  # trailing-off pause
     s = s.replace("...", ".").replace("…", ".")
     # Real pauses -> placeholders, so quote/slash commas below stay short.
     s = re.sub(r"\s+(?:--?|–|—)\s+|--|—", "\x02", s)
@@ -62,7 +64,8 @@ def clean(s: str) -> str:
     s = re.sub(r'[“”"]', ", ", s)
     s = re.sub(r"(\d)\s*/\s*(\d)", r"\1 of \2", s)  # HP 50/100
     s = s.replace("/", ", ")
-    s = re.sub(r"(?<!\S)[|l](?!\S)", "I", s)  # OCR misreads of pronoun I
+    s = re.sub(r"(?<!\S)[|l](?=\s+[a-z])", "I", s)  # OCR misreads of pronoun I
+    s = re.sub(r"(?<!\S)\|(?!\S)", ",", s)  # UI separator "HP | MP"
     s = re.sub(r"\s+", " ", s)
     s = re.sub(r"\s+([,.;:!?\x01\x02])", r"\1", s)
     s = re.sub(r",\s*,+", ", ", s)
@@ -127,6 +130,10 @@ they might give you nightmares.
     assert flow("Then | think l agree.") == "Then [[ ˈaɪ ]] think [[ ˈaɪ ]] agree."
     assert flow("so inter-\nesting") == "so interesting."
     assert flow("Wait,") == "Wait."
+    assert flow("See [[Main Page]] now.") == "See Main Page now."
+    assert "ˈaɪ" not in flow("HP | MP"), flow("HP | MP")
+    assert flow("Gold | Silver") == "Gold, Silver."
+    assert flow("So... what?") == "So [[ ..... ]] what?"
     assert flow("Mr. Smith met Dr. Brown.") == "Mr Smith met Dr Brown."
     assert flow("Lv. 12 vs Mt. Doom") == "level 12 versus mount Doom."
     assert flow("CHAPTER XIV\nChapter II and I went") == "Chapter 14. Chapter 2 and [[ ˈaɪ ]] went."
@@ -136,8 +143,14 @@ they might give you nightmares.
 
 def select_region_bbox() -> tuple[int, int, int, int] | None:
     """Fullscreen dim overlay; drag to select. Returns (left, top, right, bottom) or None."""
+    import ctypes
     import tkinter as tk
 
+    # Pillow grabs physical pixels; make Tk report them too (display scaling >100%).
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        pass
     root = tk.Tk()
     root.attributes("-fullscreen", True)
     root.attributes("-alpha", 0.25)
@@ -195,9 +208,11 @@ def select_region_bbox() -> tuple[int, int, int, int] | None:
 
 
 def capture_region(bbox: tuple[int, int, int, int]):
-    from PIL import ImageGrab
+    from PIL import Image, ImageGrab
 
-    return ImageGrab.grab(bbox=bbox)
+    # 2x: Tesseract misreads small game fonts (x-height under ~10px).
+    img = ImageGrab.grab(bbox=bbox)
+    return img.resize((img.width * 2, img.height * 2), Image.LANCZOS)
 
 
 def ocr_image(image) -> str:
@@ -282,7 +297,8 @@ def speak(text: str) -> None:
         "stdin": subprocess.PIPE,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
-        "text": True,
+        "encoding": "utf-8",  # [[ ˈaɪ ]] is not cp1252
+        "env": {**os.environ, "PYTHONUTF8": "1"},  # Piper reads stdin as UTF-8
     }
     if sys.platform == "win32":
         kwargs["creationflags"] = (

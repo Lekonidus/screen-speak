@@ -36,7 +36,9 @@ def roman(m):
     return str(sum(-v[a] if v[a] < v[b] else v[a] for a, b in zip(r, r[1:] + "I")))
 
 def clean(s):
+    s = re.sub(r"[\[\]]", "", s)  # "[[" would reach Piper as raw phonemes
     s = re.sub(r"\b(" + "|".join(ABBREVS) + r")\b\.?", lambda m: ABBREVS[m[1]], s)
+    s = re.sub(r"(?:\.\.\.|…)\s*(?=[a-z])", "\x02", s)  # trailing-off pause
     s = s.replace("...", ".").replace("…", ".")
     # Real pauses -> placeholders, so quote/slash commas below stay short.
     s = re.sub(r"\s+(?:--?|–|—)\s+|--|—", "\x02", s)
@@ -44,7 +46,8 @@ def clean(s):
     s = re.sub(r"[“”\"]", ", ", s)
     s = re.sub(r"(\d)\s*/\s*(\d)", r"\1 of \2", s)  # HP 50/100
     s = s.replace("/", ", ")
-    s = re.sub(r"(?<!\S)[|l](?!\S)", "I", s)  # OCR misreads of pronoun I
+    s = re.sub(r"(?<!\S)[|l](?=\s+[a-z])", "I", s)  # OCR misreads of pronoun I
+    s = re.sub(r"(?<!\S)\|(?!\S)", ",", s)  # UI separator "HP | MP"
     s = re.sub(r"\s+", " ", s)
     s = re.sub(r"\s+([,.;:!?\x01\x02])", r"\1", s)
     s = re.sub(r",\s*,+", ", ", s)
@@ -107,6 +110,10 @@ they might give you nightmares.
     assert flow("Then | think l agree.") == "Then [[ ˈaɪ ]] think [[ ˈaɪ ]] agree."
     assert flow("so inter-\nesting") == "so interesting."
     assert flow("Wait,") == "Wait."
+    assert flow("See [[Main Page]] now.") == "See Main Page now."
+    assert "ˈaɪ" not in flow("HP | MP"), flow("HP | MP")
+    assert flow("Gold | Silver") == "Gold, Silver."
+    assert flow("So... what?") == "So [[ ..... ]] what?"
     assert flow("Mr. Smith met Dr. Brown.") == "Mr Smith met Dr Brown."
     assert flow("Lv. 12 vs Mt. Doom") == "level 12 versus mount Doom."
     assert flow("CHAPTER XIV\nChapter II and I went") == "Chapter 14. Chapter 2 and [[ ˈaɪ ]] went."
@@ -135,7 +142,8 @@ SELECTION=$(slurp 2>/dev/null)
 
 [[ -z $SELECTION ]] && exit 0
 
-RAW=$(grim -g "$SELECTION" - | tesseract stdin stdout --oem 1 --psm 6 -l "${OMARCHY_OCR_LANGS:-eng}" --dpi 300 -c preserve_interword_spaces=1 2>/dev/null) || exit 1
+# -s 2: Tesseract misreads small game fonts (x-height under ~10px).
+RAW=$(grim -s 2 -g "$SELECTION" - | tesseract stdin stdout --oem 1 --psm 6 -l "${OMARCHY_OCR_LANGS:-eng}" --dpi 300 -c preserve_interword_spaces=1 2>/dev/null) || exit 1
 [[ -z $RAW ]] && { omarchy-notification-send -g 󰔊 "No text found in selection"; exit 1; }
 printf '%s' "$RAW" | wl-copy
 

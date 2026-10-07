@@ -130,8 +130,25 @@ if [[ $1 == --check ]]; then
   exit $?
 fi
 
+# Hyprland 0.56.x bug (fixed upstream in PR #15795, after 0.56.2): once an
+# overlay (slurp, hyprpicker, a notification) covers a fullscreen game, the
+# game's pointer lock / focus isn't restored until a workspace switch and back.
+# Do that switch for the user. One Lua call, so no frame shows the empty
+# workspace; if the first hop fails, the second is a no-op (never stranded).
+# ponytail: version-gated; it retires itself on Hyprland 0.57+.
+read -r WS FS < <(hyprctl activewindow -j | jq -r '"\(.workspace.id) \(.fullscreen)"')
+[[ $(hyprctl version -j | jq -r .tag) == v0.56.* ]] || FS=0
+
+refocus_fullscreen() {
+  [[ $WS =~ ^[0-9]+$ ]] && (( FS & 2 )) || return 0
+  sleep .2  # let the overlays unmap and the notification map first
+  hyprctl eval "pcall(function() hl.dispatch(hl.dsp.focus({ workspace = \"emptym\" })) end)
+hl.dispatch(hl.dsp.focus({ workspace = \"$WS\" }))" >/dev/null
+}
+
 cleanup_freeze() {
-  [[ -n $PID ]] && kill "$PID" 2>/dev/null
+  [[ -n $PID ]] && kill "$PID" 2>/dev/null && wait "$PID" 2>/dev/null
+  refocus_fullscreen
 }
 trap cleanup_freeze EXIT
 

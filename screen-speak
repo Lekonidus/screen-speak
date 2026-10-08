@@ -133,17 +133,31 @@ fi
 # Hyprland 0.56.x bug (fixed upstream in PR #15795, after 0.56.2): once an
 # overlay (slurp, hyprpicker, a notification) covers a fullscreen game, the
 # game's pointer lock / focus isn't restored until a workspace switch and back.
-# Do that switch for the user. One Lua call, so no frame shows the empty
-# workspace; if the first hop fails, the second is a no-op (never stranded).
+# Do that switch for the user. It must last a few frames (an instant hop left
+# buttons dead in Proton games), so animations go off to make it a blink.
 # ponytail: version-gated; it retires itself on Hyprland 0.57+.
 read -r WS FS < <(hyprctl activewindow -j | jq -r '"\(.workspace.id) \(.fullscreen)"')
 [[ $(hyprctl version -j | jq -r .tag) == v0.56.* ]] || FS=0
+HOP_DWELL=.15  # seconds on the empty workspace; raise it if buttons stay dead
 
 refocus_fullscreen() {
   [[ $WS =~ ^[0-9]+$ ]] && (( FS & 2 )) || return 0
+  local anim x y
+  anim=$(hyprctl getoption animations:enabled -j | jq -r .bool)
+  [[ $anim == false ]] || anim=true
   sleep .2  # let the overlays unmap and the notification map first
-  hyprctl eval "pcall(function() hl.dispatch(hl.dsp.focus({ workspace = \"emptym\" })) end)
-hl.dispatch(hl.dsp.focus({ workspace = \"$WS\" }))" >/dev/null
+  hyprctl eval "hl.config({ animations = { enabled = false } })
+pcall(function() hl.dispatch(hl.dsp.focus({ workspace = \"emptym\" })) end)" >/dev/null
+  sleep "$HOP_DWELL"
+  hyprctl eval "hl.dispatch(hl.dsp.focus({ workspace = \"$WS\" }))
+hl.config({ animations = { enabled = $anim } })" >/dev/null
+  # 1px nudge and back: real motion so the game re-checks what's under the
+  # pointer (button hover/click state).
+  sleep .05
+  read -r x y < <(hyprctl cursorpos | tr -d ,)
+  [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] || return 0
+  hyprctl eval "hl.dispatch(hl.dsp.cursor.move({ x = $((x + 1)), y = $y }))
+hl.dispatch(hl.dsp.cursor.move({ x = $x, y = $y }))" >/dev/null
 }
 
 cleanup_freeze() {

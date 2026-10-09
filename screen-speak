@@ -132,46 +132,74 @@ fi
 
 # Hyprland 0.56.x bug (fixed upstream in PR #15795, after 0.56.2): once an
 # overlay (slurp, hyprpicker, a notification) covers a fullscreen game, the
-# game's pointer lock / focus isn't restored until a workspace switch and back.
-# Do that switch for the user, the way that works by hand: focus a real window
-# on another desktop, then the game again. An empty workspace isn't enough
-# (logged: XWayland never saw the game lose focus, so Proton buttons stayed
-# dead). The hop runs while hyprpicker's frozen frame still covers the
-# screen (it's per-monitor, so it stays up across workspaces), and animations
-# go off so nothing is still sliding when the freeze lifts: invisible. The
-# freeze holds the keyboard, so layers_hog_keyboard_focus goes off for the hop
-# (logged: with it on, the hop switched desktops but focus never moved).
+# game's focus isn't restored until you switch desktop and back. Logged: what
+# fixes a Proton game is its X11 side seeing focus leave and come back
+# (_NET_ACTIVE_WINDOW -> 0x0 -> game); an empty-workspace hop never does that,
+# and a hop to a real window works but flashes another desktop. So replay what
+# Hyprland's XWM sends on that round trip (src/xwayland/XWM.cpp activateSurface
+# / focusWindow) straight to the X server: nothing on screen changes.
 # ponytail: version-gated; it retires itself on Hyprland 0.57+.
-read -r WS FS ADDR < <(hyprctl activewindow -j | jq -r '"\(.workspace.id) \(.fullscreen) \(.address)"')
+read -r FS XW < <(hyprctl activewindow -j | jq -r '"\(.fullscreen) \(.xwayland)"')
+XWIN=$(xprop -root _NET_ACTIVE_WINDOW 2>/dev/null | grep -o '0x[0-9a-f]*$')
 [[ $(hyprctl version -j | jq -r .tag) == v0.56.* ]] || FS=0
-HOP_DWELL=.2  # seconds on the other window; raise it if buttons stay dead
 
 refocus_fullscreen() {
-  [[ $WS =~ ^[0-9]+$ ]] && (( FS & 2 )) || return 0
-  local anim hog hop other
-  anim=$(hyprctl getoption animations:enabled -j | jq -r .bool)
-  hog=$(hyprctl getoption misc:layers_hog_keyboard_focus -j | jq -r .bool)
-  [[ $anim == false ]] || anim=true
-  [[ $hog == false ]] || hog=true
-  # Most recent window on another normal desktop (not the scratchpad, not the
-  # game's own desktop, where focusing could drop the game out of fullscreen).
-  other=$(hyprctl clients -j | jq -r --arg a "$ADDR" --argjson ws "$WS" \
-    '[.[] | select(.address != $a and .workspace.id > 0 and .workspace.id != $ws and .mapped and (.hidden | not))]
-     | sort_by(.focusHistoryID) | .[0].address // empty')
-  hop="workspace = \"emptym\""
-  [[ -n $other ]] && hop="window = \"address:$other\""
-  sleep .2  # let the selection unmap and the notification map first
-  hyprctl eval "hl.config({ animations = { enabled = false }, misc = { layers_hog_keyboard_focus = false } })
-pcall(function() hl.dispatch(hl.dsp.focus({ $hop })) end)" >/dev/null
-  sleep "$HOP_DWELL"
-  hyprctl eval "pcall(function() hl.dispatch(hl.dsp.focus({ window = \"address:$ADDR\" })) end)
-hl.dispatch(hl.dsp.focus({ workspace = \"$WS\" }))
-hl.config({ animations = { enabled = $anim }, misc = { layers_hog_keyboard_focus = $hog } })" >/dev/null
+  [[ $XW == true && -n $XWIN && $XWIN != 0x0 ]] && (( FS & 2 )) || return 0
+  sleep .2  # let the overlays unmap and the notification map first
+  python3 -P - "$XWIN" <<'PY'
+import ctypes as C, sys, time
+x = C.cdll.LoadLibrary("libX11.so.6")
+x.XOpenDisplay.restype = C.c_void_p
+x.XInternAtom.restype = x.XDefaultRootWindow.restype = C.c_ulong
+x.XInternAtom.argtypes = [C.c_void_p, C.c_char_p, C.c_int]
+x.XDefaultRootWindow.argtypes = [C.c_void_p]
+x.XChangeProperty.argtypes = [C.c_void_p, C.c_ulong, C.c_ulong, C.c_ulong, C.c_int, C.c_int, C.c_void_p, C.c_int]
+x.XSetInputFocus.argtypes = [C.c_void_p, C.c_ulong, C.c_int, C.c_ulong]
+x.XSendEvent.argtypes = [C.c_void_p, C.c_ulong, C.c_int, C.c_long, C.c_void_p]
+x.XSync.argtypes = [C.c_void_p, C.c_int]
+x.XCloseDisplay.argtypes = [C.c_void_p]
+ignore = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_void_p)(lambda d, e: 0)
+x.XSetErrorHandler(ignore)  # window gone meanwhile: just skip
+
+class ClientMessage(C.Structure):
+    _fields_ = [("type", C.c_int), ("serial", C.c_ulong), ("send_event", C.c_int),
+                ("display", C.c_void_p), ("window", C.c_ulong), ("message_type", C.c_ulong),
+                ("format", C.c_int), ("l", C.c_long * 5)]
+class XEvent(C.Union):
+    _fields_ = [("xclient", ClientMessage), ("pad", C.c_long * 24)]
+
+d = x.XOpenDisplay(None)
+if not d:
+    sys.exit(0)
+win, root = int(sys.argv[1], 16), x.XDefaultRootWindow(d)
+atom = lambda name: x.XInternAtom(d, name, 0)
+NET_ACTIVE, XA_WINDOW, POINTER_ROOT = atom(b"_NET_ACTIVE_WINDOW"), 33, 1
+
+def set_active(w):
+    v = C.c_ulong(w)
+    x.XChangeProperty(d, root, NET_ACTIVE, XA_WINDOW, 32, 0, C.byref(v), 1)
+
+# Focus leaves: active window none, input focus none.
+set_active(0)
+x.XSetInputFocus(d, 0, POINTER_ROOT, 0)
+x.XSync(d, 0)
+time.sleep(0.1)
+# Focus returns: active window, WM_TAKE_FOCUS, input focus.
+set_active(win)
+ev = XEvent()
+ev.xclient.type, ev.xclient.window, ev.xclient.format = 33, win, 32
+ev.xclient.message_type = atom(b"WM_PROTOCOLS")
+ev.xclient.l[0], ev.xclient.l[1] = atom(b"WM_TAKE_FOCUS"), 0
+x.XSendEvent(d, win, 0, 1 << 20, C.byref(ev))
+x.XSetInputFocus(d, win, POINTER_ROOT, 0)
+x.XSync(d, 0)
+x.XCloseDisplay(d)
+PY
 }
 
 cleanup_freeze() {
-  refocus_fullscreen  # first, hidden behind the freeze
   [[ -n $PID ]] && kill "$PID" 2>/dev/null && wait "$PID" 2>/dev/null
+  refocus_fullscreen
 }
 trap cleanup_freeze EXIT
 

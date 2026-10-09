@@ -17,7 +17,9 @@ Same idea on Linux (Omarchy/Hyprland) and Windows.
 
 ### Install
 
-Needs Wayland capture tools Omarchy already ships: `grim`, `slurp`, `hyprpicker`, `tesseract`, `wl-copy`, `ffplay`.
+Needs tools Omarchy already ships: `grim`, `slurp`, `hyprpicker`, `tesseract`, `wl-copy`, `ffplay`, `jq`, `xprop`.
+
+Fullscreen Proton/XWayland games on Hyprland 0.56.x lose focus after the capture overlay (buttons stop clicking until you switch desktop and back). screen-speak works around it by replaying the X11 focus round trip after each capture, invisibly; it switches itself off on Hyprland 0.57+.
 
 ```bash
 pip install --user piper-tts

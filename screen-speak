@@ -133,31 +133,34 @@ fi
 # Hyprland 0.56.x bug (fixed upstream in PR #15795, after 0.56.2): once an
 # overlay (slurp, hyprpicker, a notification) covers a fullscreen game, the
 # game's pointer lock / focus isn't restored until a workspace switch and back.
-# Do that switch for the user. It must last a few frames (an instant hop left
-# buttons dead in Proton games), so animations go off to make it a blink.
+# Do that switch for the user, the way that works by hand: focus a real window
+# on another desktop, then the game again. An empty workspace isn't enough
+# (logged: XWayland never saw the game lose focus, so Proton buttons stayed
+# dead). Animations go off so the hop is a blink.
 # ponytail: version-gated; it retires itself on Hyprland 0.57+.
-read -r WS FS < <(hyprctl activewindow -j | jq -r '"\(.workspace.id) \(.fullscreen)"')
+read -r WS FS ADDR < <(hyprctl activewindow -j | jq -r '"\(.workspace.id) \(.fullscreen) \(.address)"')
 [[ $(hyprctl version -j | jq -r .tag) == v0.56.* ]] || FS=0
-HOP_DWELL=.15  # seconds on the empty workspace; raise it if buttons stay dead
+HOP_DWELL=.2  # seconds on the other window; raise it if buttons stay dead
 
 refocus_fullscreen() {
   [[ $WS =~ ^[0-9]+$ ]] && (( FS & 2 )) || return 0
-  local anim x y
+  local anim hop other
   anim=$(hyprctl getoption animations:enabled -j | jq -r .bool)
   [[ $anim == false ]] || anim=true
+  # Most recent window on another normal desktop (not the scratchpad, not the
+  # game's own desktop, where focusing could drop the game out of fullscreen).
+  other=$(hyprctl clients -j | jq -r --arg a "$ADDR" --argjson ws "$WS" \
+    '[.[] | select(.address != $a and .workspace.id > 0 and .workspace.id != $ws and .mapped and (.hidden | not))]
+     | sort_by(.focusHistoryID) | .[0].address // empty')
+  hop="workspace = \"emptym\""
+  [[ -n $other ]] && hop="window = \"address:$other\""
   sleep .2  # let the overlays unmap and the notification map first
   hyprctl eval "hl.config({ animations = { enabled = false } })
-pcall(function() hl.dispatch(hl.dsp.focus({ workspace = \"emptym\" })) end)" >/dev/null
+pcall(function() hl.dispatch(hl.dsp.focus({ $hop })) end)" >/dev/null
   sleep "$HOP_DWELL"
-  hyprctl eval "hl.dispatch(hl.dsp.focus({ workspace = \"$WS\" }))
+  hyprctl eval "pcall(function() hl.dispatch(hl.dsp.focus({ window = \"address:$ADDR\" })) end)
+hl.dispatch(hl.dsp.focus({ workspace = \"$WS\" }))
 hl.config({ animations = { enabled = $anim } })" >/dev/null
-  # 1px nudge and back: real motion so the game re-checks what's under the
-  # pointer (button hover/click state).
-  sleep .05
-  read -r x y < <(hyprctl cursorpos | tr -d ,)
-  [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] || return 0
-  hyprctl eval "hl.dispatch(hl.dsp.cursor.move({ x = $((x + 1)), y = $y }))
-hl.dispatch(hl.dsp.cursor.move({ x = $x, y = $y }))" >/dev/null
 }
 
 cleanup_freeze() {

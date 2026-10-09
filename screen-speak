@@ -136,7 +136,9 @@ fi
 # Do that switch for the user, the way that works by hand: focus a real window
 # on another desktop, then the game again. An empty workspace isn't enough
 # (logged: XWayland never saw the game lose focus, so Proton buttons stayed
-# dead). Animations go off so the hop is a blink.
+# dead). The hop runs while hyprpicker's frozen frame still covers the
+# screen (it's per-monitor, so it stays up across workspaces), and animations
+# go off so nothing is still sliding when the freeze lifts: invisible.
 # ponytail: version-gated; it retires itself on Hyprland 0.57+.
 read -r WS FS ADDR < <(hyprctl activewindow -j | jq -r '"\(.workspace.id) \(.fullscreen) \(.address)"')
 [[ $(hyprctl version -j | jq -r .tag) == v0.56.* ]] || FS=0
@@ -154,7 +156,7 @@ refocus_fullscreen() {
      | sort_by(.focusHistoryID) | .[0].address // empty')
   hop="workspace = \"emptym\""
   [[ -n $other ]] && hop="window = \"address:$other\""
-  sleep .2  # let the overlays unmap and the notification map first
+  sleep .2  # let the selection unmap and the notification map first
   hyprctl eval "hl.config({ animations = { enabled = false } })
 pcall(function() hl.dispatch(hl.dsp.focus({ $hop })) end)" >/dev/null
   sleep "$HOP_DWELL"
@@ -164,8 +166,8 @@ hl.config({ animations = { enabled = $anim } })" >/dev/null
 }
 
 cleanup_freeze() {
+  refocus_fullscreen  # first, hidden behind the freeze
   [[ -n $PID ]] && kill "$PID" 2>/dev/null && wait "$PID" 2>/dev/null
-  refocus_fullscreen
 }
 trap cleanup_freeze EXIT
 

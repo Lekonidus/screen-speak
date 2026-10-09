@@ -138,7 +138,9 @@ fi
 # (logged: XWayland never saw the game lose focus, so Proton buttons stayed
 # dead). The hop runs while hyprpicker's frozen frame still covers the
 # screen (it's per-monitor, so it stays up across workspaces), and animations
-# go off so nothing is still sliding when the freeze lifts: invisible.
+# go off so nothing is still sliding when the freeze lifts: invisible. The
+# freeze holds the keyboard, so layers_hog_keyboard_focus goes off for the hop
+# (logged: with it on, the hop switched desktops but focus never moved).
 # ponytail: version-gated; it retires itself on Hyprland 0.57+.
 read -r WS FS ADDR < <(hyprctl activewindow -j | jq -r '"\(.workspace.id) \(.fullscreen) \(.address)"')
 [[ $(hyprctl version -j | jq -r .tag) == v0.56.* ]] || FS=0
@@ -146,9 +148,11 @@ HOP_DWELL=.2  # seconds on the other window; raise it if buttons stay dead
 
 refocus_fullscreen() {
   [[ $WS =~ ^[0-9]+$ ]] && (( FS & 2 )) || return 0
-  local anim hop other
+  local anim hog hop other
   anim=$(hyprctl getoption animations:enabled -j | jq -r .bool)
+  hog=$(hyprctl getoption misc:layers_hog_keyboard_focus -j | jq -r .bool)
   [[ $anim == false ]] || anim=true
+  [[ $hog == false ]] || hog=true
   # Most recent window on another normal desktop (not the scratchpad, not the
   # game's own desktop, where focusing could drop the game out of fullscreen).
   other=$(hyprctl clients -j | jq -r --arg a "$ADDR" --argjson ws "$WS" \
@@ -157,12 +161,12 @@ refocus_fullscreen() {
   hop="workspace = \"emptym\""
   [[ -n $other ]] && hop="window = \"address:$other\""
   sleep .2  # let the selection unmap and the notification map first
-  hyprctl eval "hl.config({ animations = { enabled = false } })
+  hyprctl eval "hl.config({ animations = { enabled = false }, misc = { layers_hog_keyboard_focus = false } })
 pcall(function() hl.dispatch(hl.dsp.focus({ $hop })) end)" >/dev/null
   sleep "$HOP_DWELL"
   hyprctl eval "pcall(function() hl.dispatch(hl.dsp.focus({ window = \"address:$ADDR\" })) end)
 hl.dispatch(hl.dsp.focus({ workspace = \"$WS\" }))
-hl.config({ animations = { enabled = $anim } })" >/dev/null
+hl.config({ animations = { enabled = $anim }, misc = { layers_hog_keyboard_focus = $hog } })" >/dev/null
 }
 
 cleanup_freeze() {
